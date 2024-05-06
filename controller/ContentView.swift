@@ -27,7 +27,10 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
     @Published var mcSession: MCSession
     @Published var peers: [MCPeerID] = []
     var mcBrowser: MCBrowserViewController?
-
+    let motionManager = CMMotionManager()
+    var gasPressed = false
+    var brakePressed = false
+    
     override init() {
         var session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: MCEncryptionPreference.none)
         self.mcSession = session
@@ -35,6 +38,33 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
         super.init()
         self.mcSession.delegate = self
         self.mcBrowser!.delegate = self
+        
+        if motionManager.isDeviceMotionAvailable {
+            motionManager.deviceMotionUpdateInterval = 0.01
+            motionManager.startDeviceMotionUpdates(to: .main) { (data, error) in
+                guard let data = data, error == nil else {
+                    return
+                }
+                let rotation = atan2(data.gravity.x,
+                                     data.gravity.y)
+                var adjustedToZeroCenter = rotation * -1 - .pi / 2
+                var stretched = adjustedToZeroCenter * 1.4
+                var output = min(max(stretched, -1), 1)
+                do {
+                    if !self.peers.isEmpty {
+                        var data = Data(Float(output).bytes)
+                        print(output)
+                        print(self.gasPressed)
+                        print(self.brakePressed)
+                        data.append(Swift.withUnsafeBytes(of: self.gasPressed, { Data($0) }))
+                        data.append(Swift.withUnsafeBytes(of: self.brakePressed, { Data($0) }))
+                        try self.mcSession.send(Data(data), toPeers: self.peers, with: .unreliable)
+                    }
+                } catch {
+                    print(error)
+                }
+            }
+        }
     }
     
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
@@ -92,8 +122,29 @@ extension Float {
 struct ContentView: View {
 //    @ObservedObject var appState = AppState()
     var appState = AppState()
-    @State var joystickPosition = simd_float2(0,0)
-    let motionManager = CMMotionManager()
+    
+    @GestureState private var gasPressGestureActive = false
+    var gasPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+                    .updating($gasPressGestureActive) { (_, isPressed, _) in
+                        appState.gasPressed = true
+                        isPressed = true
+                    }.onEnded({ ended in
+                        appState.gasPressed = false
+                    })
+    }
+    
+    @State var brakePressed = false
+    @GestureState private var brakePressGestureActive = false
+    var breakPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+                    .updating($brakePressGestureActive) { (_, isPressed, _) in
+                        appState.brakePressed = true
+                        isPressed = true
+                    }.onEnded({ ended in
+                        appState.brakePressed = false
+                    })
+    }
     
     var body: some View {
         VStack {
@@ -102,74 +153,8 @@ struct ContentView: View {
                 .foregroundStyle(.tint)
             MCBrowserView(appState: appState)
             HStack {
-                HStack {
-                    GeometryReader { geometry in
-                        ZStack {
-                            Circle().frame(width: 200, height: 200).foregroundColor(.red).gesture(DragGesture()
-                                .onChanged { event in
-                                    do {
-                                        let center = simd_float2(x: Float(geometry.frame(in: .local).midX), y: Float(geometry.frame(in: .local).midY))
-                                        let current = simd_float2(x: Float(event.location.x), y: Float(event.location.y))
-                                        let delta = current - center
-                                        let distance = sqrt(pow(delta.x, 2) + pow(delta.y, 2))
-                                        if distance > 50 {
-                                            let normalized = normalize(delta)
-                                            joystickPosition = normalized * 50
-                                        } else {
-                                            joystickPosition = simd_float2(Float(delta.x), Float(delta.y))
-                                        }
-                                        let adjustedPosition = joystickPosition * simd_float2(1,-1) / 50
-                                        var data = Data(adjustedPosition.x.bytes)
-                                        data.append(Data(adjustedPosition.y.bytes))
-                                        
-                                        if !appState.peers.isEmpty {
-                                            try appState.mcSession.send(data, toPeers: appState.peers, with: .unreliable)
-                                        }
-                                    } catch {
-                                        print(error)
-                                    }
-                                }
-                                .onEnded { event in
-                                    joystickPosition = .zero
-                                    do {
-                                        if !appState.peers.isEmpty {
-                                            var data = Data(joystickPosition.x.bytes)
-                                            data.append(Data(joystickPosition.y.bytes))
-                                            try appState.mcSession.send(Data(data), toPeers: appState.peers, with: .unreliable)
-                                        }
-                                    } catch {
-                                        print(error)
-                                    }
-                                })
-                            Circle().frame(width: 100, height: 100).foregroundColor(.white).allowsHitTesting(false).offset(x: CGFloat(joystickPosition.x), y: CGFloat(joystickPosition.y))
-                        }
-                    }
-                }.frame(width: 200, height: 200)
-                Spacer()
-                HStack {
-                    Circle().frame(width: 80, height: 80).foregroundColor(.yellow).offset(x: -20, y: 20)
-                    Circle().frame(width: 80, height: 80).foregroundColor(.pink).offset(x: -0, y: -20)
-                }.frame(width: 200, height: 200)
-                .onAppear(perform: {
-                    if motionManager.isDeviceMotionAvailable {
-                        motionManager.deviceMotionUpdateInterval = 0.01
-                        motionManager.startDeviceMotionUpdates(to: .main) { (data, error) in
-                            guard let data = data, error == nil else {
-                                print(error)
-                                return
-                            }
-                            
-                            let rotation = atan2(data.gravity.x,
-                                                 data.gravity.z)
-                            if rotation < 0 {
-                                var adjustedToZeroCenter = rotation * -1 - .pi / 2
-                                var stretched = adjustedToZeroCenter * 1.4
-                                var output = min(max(stretched, -1), 1)
-                                print(output)
-                            }
-                        }
-                    }
-                })
+                Rectangle().fill(Color.red).gesture(breakPressGesture)
+                Rectangle().fill(Color.blue).gesture(gasPressGesture)
             }
         }
         .padding()
