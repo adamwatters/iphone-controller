@@ -8,6 +8,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import simd
+import CoreMotion
 
 struct MCBrowserView: UIViewControllerRepresentable {
     var appState: AppState
@@ -92,6 +93,7 @@ struct ContentView: View {
 //    @ObservedObject var appState = AppState()
     var appState = AppState()
     @State var joystickPosition = simd_float2(0,0)
+    let motionManager = CMMotionManager()
     
     var body: some View {
         VStack {
@@ -119,6 +121,7 @@ struct ContentView: View {
                                         let adjustedPosition = joystickPosition * simd_float2(1,-1) / 50
                                         var data = Data(adjustedPosition.x.bytes)
                                         data.append(Data(adjustedPosition.y.bytes))
+                                        
                                         if !appState.peers.isEmpty {
                                             try appState.mcSession.send(data, toPeers: appState.peers, with: .unreliable)
                                         }
@@ -147,6 +150,26 @@ struct ContentView: View {
                     Circle().frame(width: 80, height: 80).foregroundColor(.yellow).offset(x: -20, y: 20)
                     Circle().frame(width: 80, height: 80).foregroundColor(.pink).offset(x: -0, y: -20)
                 }.frame(width: 200, height: 200)
+                .onAppear(perform: {
+                    if motionManager.isDeviceMotionAvailable {
+                        motionManager.deviceMotionUpdateInterval = 0.01
+                        motionManager.startDeviceMotionUpdates(to: .main) { (data, error) in
+                            guard let data = data, error == nil else {
+                                print(error)
+                                return
+                            }
+                            
+                            let rotation = atan2(data.gravity.x,
+                                                 data.gravity.z)
+                            if rotation < 0 {
+                                var adjustedToZeroCenter = rotation * -1 - .pi / 2
+                                var stretched = adjustedToZeroCenter * 1.4
+                                var output = min(max(stretched, -1), 1)
+                                print(output)
+                            }
+                        }
+                    }
+                })
             }
         }
         .padding()
