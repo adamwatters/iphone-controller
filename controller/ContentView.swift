@@ -32,7 +32,7 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
     var brakePressed = false
     
     override init() {
-        var session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: MCEncryptionPreference.none)
+        let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: MCEncryptionPreference.none)
         self.mcSession = session
         self.mcBrowser = MCBrowserViewController(serviceType: "godot", session: session)
         super.init()
@@ -47,9 +47,9 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
                 }
                 let rotation = atan2(data.gravity.x,
                                      data.gravity.y)
-                var adjustedToZeroCenter = rotation * -1 - .pi / 2
-                var stretched = adjustedToZeroCenter * 1.4
-                var output = min(max(stretched, -1), 1)
+                let adjustedToZeroCenter = rotation * -1 - .pi / 2
+                let stretched = adjustedToZeroCenter * 1.4
+                let output = min(max(stretched, -1), 1)
                 do {
                     if !self.peers.isEmpty {
                         var data = Data(Float(output).bytes)
@@ -81,6 +81,9 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
                 id == peerID
             })
             print("Not Connected: \(peerID.displayName)")
+            
+        @unknown default:
+            fatalError("unknown MCSessionState value \(state)")
         }
     }
     
