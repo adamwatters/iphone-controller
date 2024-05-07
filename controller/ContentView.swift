@@ -30,6 +30,7 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
     let motionManager = CMMotionManager()
     var gasPressed = false
     var brakePressed = false
+    var previousSteeringInput = 0.0
     
     override init() {
         let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: MCEncryptionPreference.none)
@@ -49,13 +50,16 @@ class AppState: NSObject, ObservableObject, MCSessionDelegate, MCBrowserViewCont
                                      data.gravity.y)
                 let adjustedToZeroCenter = rotation * -1 - .pi / 2
                 let stretched = adjustedToZeroCenter * 1.4
-                let output = min(max(stretched, -1), 1)
+                var output = min(max(stretched, -1), 1)
+                
+                // prevent switching to complete left turn on over-steer to the right
+                if output == -1.0 && self.previousSteeringInput == 1.0 {
+                    output = self.previousSteeringInput
+                }
+                self.previousSteeringInput = output
                 do {
                     if !self.peers.isEmpty {
                         var data = Data(Float(output).bytes)
-                        print(output)
-                        print(self.gasPressed)
-                        print(self.brakePressed)
                         data.append(Swift.withUnsafeBytes(of: self.gasPressed, { Data($0) }))
                         data.append(Swift.withUnsafeBytes(of: self.brakePressed, { Data($0) }))
                         try self.mcSession.send(Data(data), toPeers: self.peers, with: .unreliable)
